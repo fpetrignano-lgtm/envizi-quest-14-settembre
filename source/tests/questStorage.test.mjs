@@ -1,0 +1,16 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {transformSync} from 'esbuild';
+const compiled=transformSync(readFileSync(new URL('../src/questStorage.ts',import.meta.url),'utf8'),{loader:'ts',format:'esm'}).code;
+const {parseQuest}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const defaults={language:'it',profile:null,priorities:['credit','compliance','customers','efficiency','supply','reputation'],screen:'cover',companySector:'manifatturiero',selectedMission:0,dfRatings:{energy:'low'},frRatings:{framework:'low'},priorityIncluded:{credit:true},missionOrder:[0,3,5,2,1,4],companyDims:[0,0,0,0,0],screenHistory:[],dataNeeds:[],frameworkChecks:{gri:{inUso:false,diInteresse:false}},siteTable:{uffici:{italia:0,europa:0}}};
+const parse=(data)=>parseQuest(JSON.stringify(data),defaults,['cover','companySetup'],['manifatturiero']);
+const valid={...defaults,profile:'marco'};
+test('round-trip retains ratings, selected mission and exclusions',()=>{const saved={...valid,selectedMission:3,dfRatings:{energy:'high'},frRatings:{framework:'medium'},priorityIncluded:{credit:false}};assert.deepEqual(parse(saved),saved);});
+test('legacy saves receive defaults for missing fields',()=>{const loaded=parse({profile:'luisa',priorities:defaults.priorities});assert.equal(loaded.dfRatings.energy,'low');assert.equal(loaded.selectedMission,0);});
+test('merges partial site tables and newly added frameworks',()=>{const loaded=parse({...valid,siteTable:{uffici:{italia:3}},frameworkChecks:{}});assert.deepEqual(loaded.siteTable.uffici,{italia:3,europa:0});assert.equal(loaded.frameworkChecks.gri.inUso,false);});
+for(const [label,change] of Object.entries({sector:{companySector:'invalid'},screen:{screen:'missing'},profile:{profile:'other'},rating:{dfRatings:{energy:'broken'}},dimensions:{companyDims:[1]},priorities:{priorities:['credit']},mission:{selectedMission:9},order:{missionOrder:[0,0,0,0,0,0]},framework:{frameworkChecks:{gri:'yes'}},sites:{siteTable:{uffici:{italia:-5}}}}))test(`rejects invalid ${label}`,()=>assert.throws(()=>parse({...valid,...change})));
+test('rejects unrelated JSON and arrays',()=>{assert.throws(()=>parse({hello:'world'}));assert.throws(()=>parse([]));});
+test('rejects malformed JSON',()=>assert.throws(()=>parseQuest('{',defaults,[],[])));
+test('does not mutate default state',()=>{const before=JSON.stringify(defaults);parse({...valid,dfRatings:{energy:'high'}});assert.equal(JSON.stringify(defaults),before);});
